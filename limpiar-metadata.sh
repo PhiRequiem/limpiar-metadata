@@ -144,7 +144,8 @@ validate_file() {
             # exiftool puede leer = archivo válido
             if exiftool "$file" >/dev/null 2>&1; then
                 # Verificar también que tiene dimensiones
-                local dims=$(exiftool -s -s -s -ImageSize "$file" 2>/dev/null)
+                local dims
+                dims=$(exiftool -s -s -s -ImageSize "$file" 2>/dev/null)
                 if [ -n "$dims" ]; then
                     echo "ok"
                     return 0
@@ -165,7 +166,8 @@ validate_file() {
                 fi
             else
                 # Sin unzip, fallback: solo verificar magic bytes
-                local magic=$(head -c 2 "$file" | xxd -p 2>/dev/null)
+                local magic
+                magic=$(head -c 2 "$file" | xxd -p 2>/dev/null)
                 if [ "$magic" = "504b" ]; then
                     echo "ok"
                     return 0
@@ -296,12 +298,12 @@ process_file() {
         return 1
     fi
     
-    local base
+    local base name ext ext_lower safe_name
     base=$(basename "$input")
-    local name="${base%.*}"
-    local ext="${base##*.}"
-    local ext_lower=$(echo "$ext" | tr '[:upper:]' '[:lower:]')
-    local safe_name=$(echo "$base" | tr ' /' '__')
+    name="${base%.*}"
+    ext="${base##*.}"
+    ext_lower=$(echo "$ext" | tr '[:upper:]' '[:lower:]')
+    safe_name=$(echo "$base" | tr ' /' '__')
     
     # Copiar a workdir
     local work_input="$WORKDIR/originals/$safe_name"
@@ -317,7 +319,8 @@ process_file() {
     echo -e "${BLUE}📄 $base${NC}"
     echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     
-    local before_count=$(count_sensitive "$before_json")
+    local before_count
+    before_count=$(count_sensitive "$before_json")
     
     echo -e "${YELLOW}METADATA ENCONTRADA${NC} (antes):"
     show_metadata_section "$before_json"
@@ -329,8 +332,8 @@ process_file() {
     fi
     
     # Determinar ruta de salida
-    local output_dir=$(dirname "$input")
-    local output_file
+    local output_dir output_file
+    output_dir=$(dirname "$input")
     
     if [ "$RENAME" = "1" ]; then
         local random_name
@@ -395,7 +398,8 @@ process_file() {
     # Metadata DESPUÉS
     local after_json="$WORKDIR/reports/after_${safe_name}.json"
     extract_metadata "$work_clean" "$after_json"
-    local after_count=$(count_sensitive "$after_json")
+    local after_count
+    after_count=$(count_sensitive "$after_json")
     local removed=$((before_count - after_count))
     
     # Escribir archivo final
