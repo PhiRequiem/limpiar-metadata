@@ -296,7 +296,8 @@ process_file() {
         return 1
     fi
     
-    local base=$(basename "$input")
+    local base
+    base=$(basename "$input")
     local name="${base%.*}"
     local ext="${base##*.}"
     local ext_lower=$(echo "$ext" | tr '[:upper:]' '[:lower:]')

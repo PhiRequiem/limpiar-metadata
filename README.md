@@ -207,6 +207,10 @@ Las siguientes están en la lista para próximas versiones. Si alguna te urge, a
 
 ## Changelog
 
+### v0.2.1 — 2026-04-21
+
+- Fix: corregidos 8 warnings SC2155 detectados por shellcheck (declaración y asignación de variables locales en líneas separadas). Sin cambios funcionales.
+
 ### v0.2.0 — 2026-04-21
 
 **Nuevas opciones:**
@@ -225,7 +229,7 @@ Las siguientes están en la lista para próximas versiones. Si alguna te urge, a
 - Detección temprana de combinaciones inválidas (`--inplace` + `--rename`)
 - Mejor reporte de totales al final (éxitos / fallos / total)
 
-### v0.1.0 — 2026-04-21
+### v0.1.0 — 2023-05-30
 
 - Versión inicial
 - Soporte para PDF, imágenes, videos, Office, ODF y audio
