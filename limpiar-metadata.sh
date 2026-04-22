@@ -298,7 +298,11 @@ process_file() {
         return 1
     fi
     
-    local base name ext ext_lower safe_name
+    local base
+    local name
+    local ext
+    local ext_lower
+    local safe_name
     base=$(basename "$input")
     name="${base%.*}"
     ext="${base##*.}"
@@ -332,7 +336,8 @@ process_file() {
     fi
     
     # Determinar ruta de salida
-    local output_dir output_file
+    local output_dir
+    local output_file
     output_dir=$(dirname "$input")
     
     if [ "$RENAME" = "1" ]; then
