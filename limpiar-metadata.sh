@@ -1,11 +1,11 @@
 #!/bin/bash
-# limpiar-metadata.sh v0.2.0
+# limpiar-metadata.sh v0.3.0
 # Elimina metadata de archivos usando mat2 + exiftool + qpdf
-# https://github.com/TU_USUARIO/limpiar-metadata
+# https://github.com/PhiRequiem/limpiar-metadata
 
 set -o pipefail
 
-VERSION="0.2.0"
+VERSION="0.3.0"
 
 # Colores
 RED='\033[0;31m'
@@ -14,6 +14,63 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 DIM='\033[2m'
 NC='\033[0m'
+
+# Extensiones soportadas (usado al recorrer directorios)
+SUPPORTED_EXTS="pdf jpg jpeg png tiff tif gif webp heic heif mp4 mov avi mkv m4v webm docx xlsx pptx odt ods odp mp3 flac ogg wav m4a opus"
+
+# Imprime salida humana, salvo en modo --json (donde stdout es solo JSON)
+say() {
+    [ "${JSON_OUTPUT:-0}" = "1" ] && return 0
+    echo -e "$@"
+}
+
+# Escapa una cadena para incrustarla en JSON (barra invertida, comillas y control)
+json_escape() {
+    local s="$1"
+    s="${s//\\/\\\\}"
+    s="${s//\"/\\\"}"
+    s="${s//$'\n'/\\n}"
+    s="${s//$'\r'/\\r}"
+    s="${s//$'\t'/\\t}"
+    printf '%s' "$s"
+}
+
+# Emite un objeto JSON con el resultado de un archivo (solo en modo --json)
+# Args: file status message removed remaining tool output
+json_result() {
+    [ "${JSON_OUTPUT:-0}" = "1" ] || return 0
+    printf '{"file":"%s","status":"%s","message":"%s","removed":%s,"remaining":%s,"tool":"%s","output":"%s"}\n' \
+        "$(json_escape "$1")" "$2" "$(json_escape "$3")" "${4:-0}" "${5:-0}" \
+        "$(json_escape "${6:-}")" "$(json_escape "${7:-}")"
+}
+
+# ¿La extensión del archivo está soportada? (para filtrar al recorrer directorios)
+is_supported() {
+    local e="${1##*.}"
+    e=$(echo "$e" | tr '[:upper:]' '[:lower:]')
+    local s
+    for s in $SUPPORTED_EXTS; do
+        [ "$e" = "$s" ] && return 0
+    done
+    return 1
+}
+
+# Expande directorios en sus archivos soportados (recursivo).
+# Los archivos pasados explícitamente se conservan tal cual.
+# Resultado en el array global EXPANDED_FILES.
+expand_inputs() {
+    EXPANDED_FILES=()
+    local item f
+    for item in "$@"; do
+        if [ -d "$item" ]; then
+            while IFS= read -r -d '' f; do
+                is_supported "$f" && EXPANDED_FILES+=("$f")
+            done < <(find "$item" -type f -print0)
+        else
+            EXPANDED_FILES+=("$item")
+        fi
+    done
+}
 
 # Verificar herramientas
 check_tools() {
@@ -205,7 +262,11 @@ generate_random_name() {
     else
         hash=$(date +%s%N | cut -c1-12)
     fi
-    echo "file_${hash}.${ext}"
+    if [ -n "$ext" ]; then
+        echo "file_${hash}.${ext}"
+    else
+        echo "file_${hash}"
+    fi
 }
 
 # Limpiar según tipo
@@ -219,7 +280,7 @@ clean_by_type() {
     
     case "$ext_lower" in
         pdf)
-            if mat2 --inplace "$output" 2>/dev/null && [ -s "$output" ]; then
+            if mat2 --inplace "$output" >/dev/null 2>&1 && [ -s "$output" ]; then
                 tool_used="mat2"
             else
                 cp "$input" "$output"
@@ -229,7 +290,7 @@ clean_by_type() {
             fi
             ;;
         jpg|jpeg|png|tiff|tif|gif|webp|heic|heif)
-            if mat2 --inplace "$output" 2>/dev/null && [ -s "$output" ]; then
+            if mat2 --inplace "$output" >/dev/null 2>&1 && [ -s "$output" ]; then
                 tool_used="mat2"
             else
                 cp "$input" "$output"
@@ -238,7 +299,7 @@ clean_by_type() {
             fi
             ;;
         mp4|mov|avi|mkv|m4v|webm)
-            if mat2 --inplace "$output" 2>/dev/null && [ -s "$output" ]; then
+            if mat2 --inplace "$output" >/dev/null 2>&1 && [ -s "$output" ]; then
                 tool_used="mat2"
             else
                 cp "$input" "$output"
@@ -247,14 +308,14 @@ clean_by_type() {
             fi
             ;;
         docx|xlsx|pptx|odt|ods|odp)
-            if mat2 --inplace "$output" 2>/dev/null && [ -s "$output" ]; then
+            if mat2 --inplace "$output" >/dev/null 2>&1 && [ -s "$output" ]; then
                 tool_used="mat2"
             else
                 tool_used="mat2-failed"
             fi
             ;;
         mp3|flac|ogg|wav|m4a|opus)
-            if mat2 --inplace "$output" 2>/dev/null && [ -s "$output" ]; then
+            if mat2 --inplace "$output" >/dev/null 2>&1 && [ -s "$output" ]; then
                 tool_used="mat2"
             else
                 cp "$input" "$output"
@@ -263,7 +324,7 @@ clean_by_type() {
             fi
             ;;
         *)
-            if mat2 --inplace "$output" 2>/dev/null && [ -s "$output" ]; then
+            if mat2 --inplace "$output" >/dev/null 2>&1 && [ -s "$output" ]; then
                 tool_used="mat2"
             else
                 cp "$input" "$output"
@@ -294,18 +355,26 @@ process_file() {
     local input="$1"
     
     if [ ! -f "$input" ]; then
-        echo -e "${RED}✗ No existe:${NC} $input"
+        say "${RED}✗ No existe:${NC} $input"
+        json_result "$input" "error" "no existe" 0 0 "" ""
         return 1
     fi
-    
+
     local base
     local name
     local ext
     local ext_lower
     local safe_name
     base=$(basename "$input")
-    name="${base%.*}"
-    ext="${base##*.}"
+    # Solo separar extensión si hay un punto que no sea el primer carácter
+    # (evita nombres tipo "README" → "README_limpio.README" o ".bashrc" mal tratado)
+    if [[ "$base" == ?*.* ]]; then
+        name="${base%.*}"
+        ext="${base##*.}"
+    else
+        name="$base"
+        ext=""
+    fi
     ext_lower=$(echo "$ext" | tr '[:upper:]' '[:lower:]')
     safe_name=$(echo "$base" | tr ' /' '__')
     
@@ -318,20 +387,26 @@ process_file() {
     extract_metadata "$work_input" "$before_json"
     
     # Header
-    echo ""
-    echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "${BLUE}📄 $base${NC}"
-    echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    
+    say ""
+    say "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    say "${BLUE}📄 $base${NC}"
+    say "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+
     local before_count
     before_count=$(count_sensitive "$before_json")
-    
-    echo -e "${YELLOW}METADATA ENCONTRADA${NC} (antes):"
-    show_metadata_section "$before_json"
-    local has_meta=$?
-    
+
+    # has_meta=0 si hay metadata sensible (before_count > 0), 1 si no
+    local has_meta=1
+    [ "$before_count" -gt 0 ] && has_meta=0
+
+    if [ "$JSON_OUTPUT" != "1" ]; then
+        echo -e "${YELLOW}METADATA ENCONTRADA${NC} (antes):"
+        show_metadata_section "$before_json"
+    fi
+
     # Modo solo-ver
     if [ "$VIEW_ONLY" = "1" ]; then
+        json_result "$input" "viewed" "solo inspección" 0 "$before_count" "" ""
         return 0
     fi
     
@@ -346,32 +421,39 @@ process_file() {
         output_file="$output_dir/$random_name"
     elif [ "$INPLACE" = "1" ]; then
         output_file="$input"
-    else
+    elif [ -n "$ext" ]; then
         output_file="$output_dir/${name}_limpio.${ext}"
+    else
+        output_file="$output_dir/${name}_limpio"
     fi
     
     # Si no hay metadata sensible
     if [ "$has_meta" -ne 0 ]; then
-        echo ""
-        echo -e "${YELLOW}RESULTADO:${NC}"
-        echo -e "  ${GREEN}✓ El archivo ya estaba limpio${NC}"
+        say ""
+        say "${YELLOW}RESULTADO:${NC}"
+        say "  ${GREEN}✓ El archivo ya estaba limpio${NC}"
+        local clean_out=""
         if [ "$INPLACE" = "1" ]; then
-            echo -e "  ${DIM}No se modificó (ya estaba limpio)${NC}"
+            say "  ${DIM}No se modificó (ya estaba limpio)${NC}"
         elif [ "$RENAME" = "1" ]; then
             cp "$input" "$output_file"
-            echo -e "  ${DIM}Copia renombrada: $output_file${NC}"
+            clean_out="$output_file"
+            say "  ${DIM}Copia renombrada: $output_file${NC}"
         else
             cp "$input" "$output_file"
-            echo -e "  ${DIM}Copia en: $output_file${NC}"
+            clean_out="$output_file"
+            say "  ${DIM}Copia en: $output_file${NC}"
         fi
+        json_result "$input" "clean" "ya estaba limpio" 0 0 "" "$clean_out"
         return 0
     fi
-    
+
     # Confirmación para --inplace (solo si hay metadata que limpiar)
     if [ "$INPLACE" = "1" ] && [ "$ASSUME_YES" != "1" ]; then
-        echo ""
+        say ""
         if ! confirm "⚠  Sobreescribir el original?"; then
-            echo -e "  ${YELLOW}Cancelado${NC}"
+            say "  ${YELLOW}Cancelado${NC}"
+            json_result "$input" "cancelled" "cancelado por el usuario" 0 "$before_count" "" ""
             return 0
         fi
     fi
@@ -382,21 +464,23 @@ process_file() {
     tool_used=$(clean_by_type "$work_input" "$work_clean" "$ext_lower")
     
     if [ "$tool_used" = "mat2-failed" ]; then
-        echo ""
-        echo -e "${RED}✗ mat2 falló con este formato y no hay fallback disponible${NC}"
+        say ""
+        say "${RED}✗ mat2 falló con este formato y no hay fallback disponible${NC}"
+        json_result "$input" "error" "mat2 falló sin fallback disponible" 0 "$before_count" "$tool_used" ""
         return 1
     fi
-    
+
     # Validar archivo limpio
     local validation
     validation=$(validate_file "$work_clean" "$ext_lower")
     local valid_exit=$?
-    
+
     if [ "$valid_exit" -ne 0 ]; then
-        echo ""
-        echo -e "${RED}✗ Validación falló: $validation${NC}"
-        echo -e "${YELLOW}  El archivo limpio parece corrupto. No se escribirá.${NC}"
-        echo -e "${DIM}  Original intacto: $input${NC}"
+        say ""
+        say "${RED}✗ Validación falló: $validation${NC}"
+        say "${YELLOW}  El archivo limpio parece corrupto. No se escribirá.${NC}"
+        say "${DIM}  Original intacto: $input${NC}"
+        json_result "$input" "error" "validación falló: $validation" 0 "$before_count" "$tool_used" ""
         return 1
     fi
     
@@ -416,27 +500,30 @@ process_file() {
     fi
     
     # Reporte
-    echo ""
-    echo -e "${YELLOW}RESULTADO:${NC}"
+    say ""
+    say "${YELLOW}RESULTADO:${NC}"
     if [ "$removed" -gt 0 ]; then
-        echo -e "  ${GREEN}✓ $removed campos eliminados${NC}"
+        say "  ${GREEN}✓ $removed campos eliminados${NC}"
     fi
-    echo -e "  ${GREEN}✓ Herramienta:${NC} $tool_used"
-    echo -e "  ${GREEN}✓ Validación:${NC} $validation"
-    
+    say "  ${GREEN}✓ Herramienta:${NC} $tool_used"
+    say "  ${GREEN}✓ Validación:${NC} $validation"
+
     if [ "$INPLACE" = "1" ]; then
-        echo -e "  ${GREEN}✓ Archivo sobreescrito:${NC} $output_file"
+        say "  ${GREEN}✓ Archivo sobreescrito:${NC} $output_file"
     else
-        echo -e "  ${GREEN}✓ Archivo limpio:${NC} $output_file"
+        say "  ${GREEN}✓ Archivo limpio:${NC} $output_file"
     fi
-    
+
     if [ "$RENAME" = "1" ] && [ "$INPLACE" != "1" ]; then
-        echo -e "  ${DIM}Nombre original oculto${NC}"
+        say "  ${DIM}Nombre original oculto${NC}"
     fi
-    
+
     if [ "$after_count" -gt 0 ]; then
-        echo -e "  ${YELLOW}⚠ Quedaron $after_count campos (revisa con --ver)${NC}"
+        say "  ${YELLOW}⚠ Quedaron $after_count campos (revisa con --view)${NC}"
     fi
+
+    json_result "$input" "ok" "limpiado" "$removed" "$after_count" "$tool_used" "$output_file"
+    return 0
 }
 
 show_help() {
@@ -448,12 +535,14 @@ Opciones:
   -i, --inplace    Sobreescribir el archivo original (pide confirmación)
   -y, --yes        Asumir sí en todas las confirmaciones (usar con --inplace)
   -r, --rename     Renombrar el archivo limpio con un hash aleatorio
-  -v, --ver        Solo mostrar metadata, no limpiar
+  -v, --view       Solo mostrar metadata, no limpiar
+  -j, --json       Salida JSON en stdout (modo no interactivo; usar con -y)
   -h, --help       Mostrar esta ayuda
       --version    Mostrar versión
 
 Comportamiento por defecto:
   Crea <nombre>_limpio.<ext> junto al original sin modificar el original.
+  Si se pasa un directorio, se recorren recursivamente los archivos soportados.
 
 Formatos soportados:
   PDF, JPG, PNG, TIFF, GIF, WebP, HEIC, MP4, MOV, MKV, AVI,
@@ -464,7 +553,9 @@ Ejemplos:
   limpiar-metadata --inplace *.pdf
   limpiar-metadata -iy *.jpg              # inplace sin confirmación
   limpiar-metadata --rename confidencial.pdf
-  limpiar-metadata --ver documento.docx
+  limpiar-metadata --view documento.docx
+  limpiar-metadata ./fotos/               # recorre el directorio
+  limpiar-metadata --json -y *.pdf        # resultado en JSON
 
 EOF
 }
@@ -475,12 +566,17 @@ main() {
     INPLACE=0
     ASSUME_YES=0
     RENAME=0
+    JSON_OUTPUT=0
     local files=()
-    
+
     while [ $# -gt 0 ]; do
         case "$1" in
-            --ver|-v)
+            --view|--ver|-v)   # --ver se mantiene como alias por compatibilidad
                 VIEW_ONLY=1
+                shift
+                ;;
+            --json|-j)
+                JSON_OUTPUT=1
                 shift
                 ;;
             --inplace|-i)
@@ -513,6 +609,7 @@ main() {
                         y) ASSUME_YES=1 ;;
                         r) RENAME=1 ;;
                         v) VIEW_ONLY=1 ;;
+                        j) JSON_OUTPUT=1 ;;
                         h) show_help; exit 0 ;;
                         *) echo "Flag desconocido: -${combined:$i:1}"; exit 1 ;;
                     esac
@@ -549,21 +646,52 @@ main() {
     fi
     
     if [ "$VIEW_ONLY" = "1" ] && { [ "$INPLACE" = "1" ] || [ "$RENAME" = "1" ]; }; then
-        echo -e "${YELLOW}⚠  --ver ignora --inplace y --rename${NC}"
+        say "${YELLOW}⚠  --view ignora --inplace y --rename${NC}"
     fi
-    
+
     check_tools
     setup_workdir
-    
+
+    # Expandir directorios en sus archivos soportados
+    expand_inputs "${files[@]}"
+    files=("${EXPANDED_FILES[@]}")
+
+    if [ ${#files[@]} -eq 0 ]; then
+        echo -e "${YELLOW}⚠ No se encontraron archivos soportados en la entrada${NC}" >&2
+        exit 1
+    fi
+
     local total=${#files[@]}
     local failed=0
-    
+    local json_results=()
+
     for file in "${files[@]}"; do
-        if ! process_file "$file"; then
-            failed=$((failed + 1))
+        if [ "$JSON_OUTPUT" = "1" ]; then
+            local line rc
+            line=$(process_file "$file")
+            rc=$?
+            [ -n "$line" ] && json_results+=("$line")
+            [ "$rc" -ne 0 ] && failed=$((failed + 1))
+        else
+            if ! process_file "$file"; then
+                failed=$((failed + 1))
+            fi
         fi
     done
-    
+
+    if [ "$JSON_OUTPUT" = "1" ]; then
+        local i
+        printf '['
+        for i in "${!json_results[@]}"; do
+            [ "$i" -gt 0 ] && printf ','
+            printf '%s' "${json_results[$i]}"
+        done
+        printf ']\n'
+        [ "$failed" -eq 0 ] && exit 0
+        [ "$failed" -eq "$total" ] && exit 1
+        exit 2
+    fi
+
     echo ""
     if [ "$failed" -eq 0 ]; then
         echo -e "${GREEN}✓ Terminado — $total archivo(s) procesado(s)${NC}"

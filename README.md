@@ -20,7 +20,7 @@ Existen herramientas excelentes para limpiar metadata (`mat2` es la referencia),
 - **Validación post-limpieza:** verifica que el archivo no quedó corrupto antes de escribirlo
 - **Modo `--inplace`:** sobreescribe el original (con confirmación)
 - **Modo `--rename`:** renombra el archivo limpio con un hash aleatorio para ocultar el nombre
-- Modo `--ver` para solo inspeccionar metadata sin limpiar
+- Modo `--view` para solo inspeccionar metadata sin limpiar
 - Trabaja sobre copias en directorio temporal y limpia al salir
 - Procesa múltiples archivos en una sola llamada
 - Códigos de salida útiles para scripts: 0 = éxito, 1 = falla total, 2 = parcial
@@ -106,7 +106,7 @@ limpiar-metadata.sh -iy *.jpg
 limpiar-metadata.sh --rename confidencial.pdf
 
 # Solo ver metadata sin limpiar
-limpiar-metadata.sh --ver reporte.pdf
+limpiar-metadata.sh --view reporte.pdf
 
 # Ayuda
 limpiar-metadata.sh --help
@@ -119,9 +119,13 @@ limpiar-metadata.sh --help
 | `-i, --inplace`   | Sobreescribe el archivo original (pide confirmación)      |
 | `-y, --yes`       | Asume sí en confirmaciones (usar con `--inplace`)         |
 | `-r, --rename`    | Renombra el limpio con un hash aleatorio                  |
-| `-v, --ver`       | Solo mostrar metadata, no limpiar                         |
+| `-v, --view`      | Solo mostrar metadata, no limpiar                         |
+| `-j, --json`      | Salida JSON en stdout (no interactivo; usar con `-y`)     |
 | `-h, --help`      | Ayuda                                                     |
 | `--version`       | Versión actual                                            |
+
+> Nota: `--ver` sigue funcionando como alias de `--view` por compatibilidad.
+> También puedes pasar un **directorio**: se recorren recursivamente los archivos soportados.
 
 Los flags cortos son combinables: `-iy`, `-iyr`, etc.
 
@@ -192,9 +196,7 @@ rm ~/bin/limpiar-metadata.sh
 
 Las siguientes están en la lista para próximas versiones. Si alguna te urge, abre un issue o un PR:
 
-- **Procesamiento recursivo de carpetas** (`-R`/`--recursive`). Hoy hay que usar globs y no maneja subcarpetas.
 - **Modo silencioso** (`-q`/`--quiet`). Para usar en pipelines de CI o workflows de publicación sin llenar la terminal.
-- **Salida JSON estructurada** (`--json`). Para integrar con otras herramientas o generar logs auditables.
 - **Dry-run** (`--dry-run`). Mostrar qué haría el script sin tocar archivos, útil antes de correr sobre un lote grande.
 - **Soporte para stdin** (`--stdin`). Leer lista de archivos desde stdin para combinar con `find`, `fd`, `fzf`:
 
@@ -206,6 +208,18 @@ Las siguientes están en la lista para próximas versiones. Si alguna te urge, a
 - **Reporte más granular de fallas parciales.** Distinguir mejor entre limpieza total, parcial y fallida en el reporte por archivo.
 
 ## Changelog
+
+### v0.3.0 — 2026-06-23
+
+**Nuevas opciones:**
+- `--view` / `-v`: reemplaza a `--ver` (que se mantiene como alias por compatibilidad)
+- `--json` / `-j`: salida JSON estructurada en stdout para integrar con otras herramientas
+- Procesamiento recursivo de carpetas: si se pasa un directorio, se recorren sus archivos soportados
+
+**Fixes:**
+- Manejo correcto de archivos sin extensión o dotfiles (antes generaban nombres como `README_limpio.README`)
+- `clean_by_type` ya no filtra la salida de `mat2` al nombre de la herramienta reportada
+- Restaurado el salto de línea final del script
 
 ### v0.2.1 — 2026-04-21
 
