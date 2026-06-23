@@ -21,6 +21,8 @@ Existen herramientas excelentes para limpiar metadata (`mat2` es la referencia),
 - **Modo `--inplace`:** sobreescribe el original (con confirmación)
 - **Modo `--rename`:** renombra el archivo limpio con un hash aleatorio para ocultar el nombre
 - Modo `--view` para solo inspeccionar metadata sin limpiar
+- **Salida JSON** (`--json`) para integrar con otras herramientas y generar logs auditables
+- **Recorrido recursivo de carpetas:** pásale un directorio y procesa los archivos soportados
 - Trabaja sobre copias en directorio temporal y limpia al salir
 - Procesa múltiples archivos en una sola llamada
 - Códigos de salida útiles para scripts: 0 = éxito, 1 = falla total, 2 = parcial
@@ -108,9 +110,35 @@ limpiar-metadata.sh --rename confidencial.pdf
 # Solo ver metadata sin limpiar
 limpiar-metadata.sh --view reporte.pdf
 
+# Procesar todos los archivos soportados de una carpeta (recursivo)
+limpiar-metadata.sh ./fotos/
+
+# Salida JSON para integrar con otras herramientas (modo no interactivo)
+limpiar-metadata.sh --json -y *.pdf
+
 # Ayuda
 limpiar-metadata.sh --help
 ```
+
+### Salida JSON
+
+Con `--json`, el script imprime en stdout un arreglo de objetos (uno por archivo) y silencia el reporte con colores. Útil para pipelines y auditoría:
+
+```json
+[
+  {
+    "file": "foto.jpg",
+    "status": "ok",
+    "message": "limpiado",
+    "removed": 4,
+    "remaining": 0,
+    "tool": "mat2",
+    "output": "foto_limpio.jpg"
+  }
+]
+```
+
+Campo `status`: `ok` (limpiado), `clean` (ya estaba limpio), `viewed` (solo `--view`), `cancelled` (usuario canceló) o `error`. Los códigos de salida (0/1/2) se mantienen.
 
 ## Opciones
 
